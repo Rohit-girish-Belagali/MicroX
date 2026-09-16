@@ -510,6 +510,211 @@ const Sprites = (() => {
     return c;
   }
 
+  function sixpack() {
+    const [c, g] = mk(340, 250);
+    glow(g, 170, 130, 165, "rgba(255,110,70,0.25)");
+
+    // six translucent loops in two rows, sagging the way slack plastic does
+    const cx = [78, 170, 262];
+    const cy = [96, 168];
+    g.lineWidth = 15;
+    g.lineJoin = "round";
+    cy.forEach((y, row) => {
+      cx.forEach((x, col) => {
+        const sag = Math.sin((col + row) * 1.1) * 6;
+        g.strokeStyle = "rgba(180,225,245,0.75)";
+        g.beginPath();
+        g.ellipse(x, y + sag, 40, 31, (col - 1) * 0.08, 0, Math.PI * 2);
+        g.stroke();
+        g.strokeStyle = "rgba(255,255,255,0.45)";
+        g.lineWidth = 5;
+        g.beginPath();
+        g.ellipse(x - 3, y + sag - 4, 36, 27, (col - 1) * 0.08, Math.PI * 0.9, Math.PI * 1.75);
+        g.stroke();
+        g.lineWidth = 15;
+      });
+    });
+
+    // webbing joining the loops
+    g.strokeStyle = "rgba(170,220,240,0.6)";
+    g.lineWidth = 11;
+    g.beginPath();
+    g.moveTo(40, 132); g.lineTo(300, 132);
+    g.moveTo(78, 60); g.lineTo(262, 60);
+    g.moveTo(78, 204); g.lineTo(262, 204);
+    g.stroke();
+
+    // a torn loop -- the loose end is what catches a flipper
+    g.strokeStyle = "rgba(200,238,255,0.8)";
+    g.lineWidth = 9;
+    g.lineCap = "round";
+    g.beginPath();
+    g.moveTo(296, 178);
+    g.quadraticCurveTo(326, 196, 312, 224);
+    g.stroke();
+    return c;
+  }
+
+  function balloon() {
+    const [c, g] = mk(260, 400);
+    glow(g, 130, 150, 150, "rgba(255,110,70,0.26)");
+
+    // the balloon is deflating, so the skin is soft and folded
+    const body = new Path2D();
+    body.moveTo(130, 42);
+    body.bezierCurveTo(206, 42, 232, 122, 206, 186);
+    body.bezierCurveTo(190, 224, 156, 244, 138, 254);
+    body.bezierCurveTo(120, 244, 74, 220, 58, 182);
+    body.bezierCurveTo(32, 118, 56, 42, 130, 42);
+    body.closePath();
+
+    const bg = g.createRadialGradient(100, 100, 12, 132, 150, 130);
+    bg.addColorStop(0, "#ff9ec4");
+    bg.addColorStop(0.45, "#e94f86");
+    bg.addColorStop(1, "#a41f52");
+    g.fillStyle = bg;
+    g.fill(body);
+
+    g.save();
+    g.clip(body);
+    // creases from the collapse
+    g.strokeStyle = "rgba(120,10,50,0.35)";
+    g.lineWidth = 5;
+    [[70, 120, 150, 210], [96, 80, 172, 176], [150, 70, 118, 226]].forEach(([x0, y0, x1, y1]) => {
+      g.beginPath(); g.moveTo(x0, y0); g.quadraticCurveTo((x0 + x1) / 2 + 16, (y0 + y1) / 2, x1, y1); g.stroke();
+    });
+    g.fillStyle = "rgba(255,255,255,0.5)";
+    g.beginPath(); g.ellipse(94, 96, 26, 38, -0.5, 0, Math.PI * 2); g.fill();
+    g.fillStyle = "rgba(255,255,255,0.25)";
+    g.beginPath(); g.ellipse(168, 128, 12, 24, 0.4, 0, Math.PI * 2); g.fill();
+    g.restore();
+
+    g.strokeStyle = "rgba(255,190,215,0.6)";
+    g.lineWidth = 4;
+    g.stroke(body);
+
+    // knot
+    g.fillStyle = "#c0306a";
+    g.beginPath(); g.ellipse(138, 262, 17, 14, 0, 0, Math.PI * 2); g.fill();
+
+    // ribbon -- the part that tangles around wings and flippers
+    g.strokeStyle = "rgba(255,240,250,0.85)";
+    g.lineWidth = 5;
+    g.lineCap = "round";
+    g.beginPath();
+    g.moveTo(138, 274);
+    g.bezierCurveTo(176, 300, 96, 322, 140, 348);
+    g.bezierCurveTo(176, 368, 112, 378, 128, 394);
+    g.stroke();
+    return c;
+  }
+
+  function microbeads() {
+    const [c, g] = mk(360, 300);
+    glow(g, 180, 150, 175, "rgba(255,120,80,0.22)");
+
+    // a drifting haze -- individually harmless, collectively a wall
+    const hz = g.createRadialGradient(180, 150, 20, 180, 150, 168);
+    hz.addColorStop(0, "rgba(198,232,255,0.35)");
+    hz.addColorStop(0.6, "rgba(150,200,240,0.18)");
+    hz.addColorStop(1, "rgba(120,180,230,0)");
+    g.fillStyle = hz;
+    g.beginPath(); g.ellipse(180, 150, 172, 142, 0, 0, Math.PI * 2); g.fill();
+
+    // deterministic scatter so the sprite looks the same every load
+    const tints = ["rgba(255,255,255,0.9)", "rgba(160,230,255,0.85)", "rgba(255,190,120,0.8)",
+                   "rgba(255,140,190,0.8)", "rgba(180,255,200,0.8)"];
+    let seed = 7;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+    for (let i = 0; i < 120; i++) {
+      const a = rnd() * Math.PI * 2;
+      const r = Math.sqrt(rnd()) * 160;
+      const x = 180 + Math.cos(a) * r;
+      const y = 150 + Math.sin(a) * r * 0.85;
+      const rad = 2.5 + rnd() * 7;
+      g.fillStyle = tints[Math.floor(rnd() * tints.length)];
+      g.beginPath(); g.arc(x, y, rad, 0, Math.PI * 2); g.fill();
+      if (rad > 6) {
+        g.fillStyle = "rgba(255,255,255,0.7)";
+        g.beginPath(); g.arc(x - rad * 0.3, y - rad * 0.3, rad * 0.28, 0, Math.PI * 2); g.fill();
+      }
+    }
+
+    // a few larger fragments still visibly breaking down
+    [[96, 84, 0.5], [258, 108, -0.3], [140, 226, 0.9], [274, 210, 0.2]].forEach(([x, y, rot]) => {
+      g.save();
+      g.translate(x, y);
+      g.rotate(rot);
+      g.fillStyle = "rgba(225,245,255,0.75)";
+      g.beginPath();
+      g.moveTo(-13, -7); g.lineTo(11, -11); g.lineTo(15, 6); g.lineTo(-6, 12);
+      g.closePath();
+      g.fill();
+      g.strokeStyle = "rgba(255,255,255,0.6)";
+      g.lineWidth = 2;
+      g.stroke();
+      g.restore();
+    });
+    return c;
+  }
+
+  function rescuePod() {
+    const [c, g] = mk(250, 250);
+    glow(g, 125, 125, 122, "rgba(120,230,255,0.55)");
+
+    // bubble
+    const bg = g.createRadialGradient(92, 88, 8, 125, 125, 96);
+    bg.addColorStop(0, "rgba(255,255,255,0.4)");
+    bg.addColorStop(0.68, "rgba(130,225,255,0.16)");
+    bg.addColorStop(0.9, "rgba(150,240,255,0.3)");
+    bg.addColorStop(1, "rgba(210,250,255,0.75)");
+    g.fillStyle = bg;
+    g.beginPath(); g.arc(125, 125, 96, 0, Math.PI * 2); g.fill();
+
+    // silhouette of a small animal curled inside, waiting to be identified
+    g.save();
+    g.translate(125, 128);
+    g.fillStyle = "rgba(10,48,80,0.55)";
+    g.beginPath();
+    g.ellipse(0, 6, 40, 30, -0.15, 0, Math.PI * 2);
+    g.fill();
+    g.beginPath(); g.ellipse(-34, -18, 17, 15, -0.3, 0, Math.PI * 2); g.fill();
+    g.beginPath();
+    g.moveTo(30, 0); g.quadraticCurveTo(56, -14, 64, -34);
+    g.quadraticCurveTo(48, -20, 34, -18); g.closePath();
+    g.fill();
+    g.fillStyle = "rgba(160,235,255,0.9)";
+    g.beginPath(); g.arc(-39, -21, 4, 0, Math.PI * 2); g.fill();
+    g.restore();
+
+    // rim highlights
+    g.strokeStyle = "rgba(255,255,255,0.75)";
+    g.lineWidth = 5;
+    g.beginPath(); g.arc(125, 125, 88, Math.PI * 0.85, Math.PI * 1.5); g.stroke();
+    g.strokeStyle = "rgba(255,255,255,0.35)";
+    g.lineWidth = 3;
+    g.beginPath(); g.arc(125, 125, 88, Math.PI * 0.1, Math.PI * 0.42); g.stroke();
+    g.fillStyle = "rgba(255,255,255,0.8)";
+    g.beginPath(); g.ellipse(92, 84, 17, 11, -0.7, 0, Math.PI * 2); g.fill();
+
+    // sparkles marking it as a rescue, not a hazard
+    g.fillStyle = "rgba(180,255,220,0.95)";
+    [[210, 66, 8], [42, 176, 7], [196, 196, 6]].forEach(([x, y, r]) => {
+      g.save();
+      g.translate(x, y);
+      g.beginPath();
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        const rr = i % 2 === 0 ? r : r * 0.4;
+        g.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+      }
+      g.closePath();
+      g.fill();
+      g.restore();
+    });
+    return c;
+  }
+
   // ----------------------------------------------------------------- Scenery
   function anemone(hueA, hueB) {
     const [c, g] = mk(300, 300);
@@ -624,6 +829,7 @@ const Sprites = (() => {
   function init() {
     Object.assign(store, {
       bottle: bottle(), bag: bag(), cup: cup(), straw: straw(), wrapper: wrapper(), net: net(),
+      sixpack: sixpack(), balloon: balloon(), microbeads: microbeads(), rescuePod: rescuePod(),
       fish: fish(), seaweed: seaweed(),
       shell: scallop(["#ffd6e4", "#ff7fa8", "rgba(200,60,110,0.45)"], "rgba(255,170,210,0.5)", false),
       goldenShell: scallop(["#fff3a8", "#f5a623", "rgba(170,100,10,0.5)"], "rgba(255,210,80,0.75)", true),

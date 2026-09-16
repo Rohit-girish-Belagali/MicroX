@@ -21,7 +21,7 @@
       <div class="hud-hearts" id="hud-hearts" role="img" aria-label="3 of 3 lives"></div>
       <div class="hud-pill hud-disc" aria-label="Pollution discoveries">
         <span class="disc-icons" id="hud-disc-dots"></span>
-        <span class="hud-pill-text"><b id="hud-discoveries">0</b>/6</span>
+        <span class="hud-pill-text"><b id="hud-discoveries">0</b>/<span id="hud-disc-total">9</span></span>
       </div>
       <div class="hud-pill hud-shield" id="hud-shield" hidden>
         <span class="shield-ico" aria-hidden="true"></span>SHIELD
@@ -70,10 +70,59 @@
         PLAY
       </button>
       <div class="btn-row">
+        <button id="btn-codex" class="btn btn-glass">Marine Life Codex</button>
         <button id="btn-how" class="btn btn-glass">How to Play</button>
         <button id="btn-about" class="btn btn-glass">About the Mission</button>
       </div>
       <p class="best-line">BEST <b id="best-score">0</b></p>
+    </div>
+  </section>
+
+  <!-- ===================== CHARACTER SELECT ===================== -->
+  <section id="screen-select" class="screen screen-dim hidden" role="dialog" aria-modal="true" aria-labelledby="select-title">
+    <div class="panel select-panel">
+      <h2 id="select-title" class="panel-title">Choose Your Guardian</h2>
+      <p class="select-sub">Every guardian swims a little differently. <span id="char-hearts"></span></p>
+      <div class="char-grid" id="char-grid" role="group" aria-labelledby="select-title"></div>
+      <div class="btn-stack">
+        <button id="btn-start-run" class="btn btn-primary btn-xl" data-autofocus>Start Swimming</button>
+        <button class="btn btn-glass" data-close-info>Back</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== MARINE LIFE CODEX ===================== -->
+  <section id="screen-codex" class="screen screen-dim hidden" role="dialog" aria-modal="true" aria-labelledby="codex-title">
+    <div class="panel info-panel codex-panel">
+      <div id="codex-list">
+        <h2 id="codex-title" class="panel-title">Marine Life Codex</h2>
+        <p class="codex-sub">Rescue animals while you swim to unlock their species cards.</p>
+        <div class="codex-progress">
+          <span class="codex-count" id="codex-count">0/12</span>
+          <div class="codex-track"><div class="codex-bar" id="codex-bar"></div></div>
+        </div>
+        <div class="codex-grid" id="codex-grid"></div>
+        <button class="btn btn-primary btn-lg" data-close-info data-autofocus>Back</button>
+      </div>
+
+      <div id="codex-detail" class="hidden">
+        <div class="cd-head">
+          <span class="codex-emoji big" id="cd-emoji"></span>
+          <div class="cd-titles">
+            <h2 class="panel-title" id="cd-name"></h2>
+            <p class="cd-sci" id="cd-sci"></p>
+            <span class="status-chip" id="cd-status"></span>
+          </div>
+        </div>
+        <div class="info-scroll">
+          <div class="sp-rows" id="cd-rows"></div>
+          <h3 class="info-h3">Did you know?</h3>
+          <ul class="sp-facts" id="cd-facts"></ul>
+          <h3 class="info-h3">How you can help</h3>
+          <p class="sp-help" id="cd-help"></p>
+        </div>
+        <button class="btn btn-primary btn-lg" id="btn-codex-back" data-autofocus>Back to Codex</button>
+      </div>
     </div>
   </section>
 
@@ -135,6 +184,7 @@
       <h2 id="pause-title" class="panel-title">Paused</h2>
       <div class="btn-stack">
         <button id="btn-resume" class="btn btn-primary btn-lg" data-autofocus>Resume</button>
+        <button id="btn-codex-pause" class="btn btn-glass">Marine Life Codex</button>
         <button id="btn-restart-from-pause" class="btn btn-glass">Restart</button>
       </div>
     </div>
@@ -164,6 +214,21 @@
         <button class="btn btn-primary btn-lg" id="btn-fact-next">Next</button>
       </div>
 
+      <!-- Stage 1 (species spotlight): the rescued animal's card -->
+      <div id="learn-species" class="learn-stage hidden">
+        <div class="learn-badge safe"><span class="codex-emoji big" id="species-emoji"></span></div>
+        <span class="learn-kicker good">SPECIES RESCUED</span>
+        <h2 class="learn-title" id="species-name"></h2>
+        <p class="cd-sci" id="species-sci"></p>
+        <span class="status-chip" id="species-status"></span>
+        <div class="learn-scroll" tabindex="0">
+          <div class="sp-rows" id="species-rows"></div>
+          <ul class="sp-facts" id="species-facts"></ul>
+          <p class="sp-help" id="species-help"></p>
+        </div>
+        <button class="btn btn-primary btn-lg" id="btn-species-next">Take the Quiz</button>
+      </div>
+
       <!-- Stage 2: Awareness -->
       <div id="learn-awareness" class="learn-stage hidden">
         <div class="learn-badge safe"><img id="awareness-img" alt=""></div>
@@ -184,10 +249,10 @@
       <!-- Result -->
       <div id="learn-result" class="learn-stage hidden">
         <div class="learn-badge gold"><img id="result-img" alt=""></div>
-        <h2 class="learn-title result-title">DISCOVERY COMPLETE</h2>
+        <h2 class="learn-title result-title" id="result-title">DISCOVERY COMPLETE</h2>
         <div class="stars" id="quiz-stars" aria-hidden="true"><span class="star">★</span><span class="star">★</span></div>
         <p class="learn-score" id="quiz-score-text"></p>
-        <p class="learn-subtext">Ocean Knowledge Increased!</p>
+        <p class="learn-subtext" id="result-sub">Ocean knowledge increased.</p>
         <button class="btn btn-primary btn-xl" id="btn-continue-swimming">CONTINUE SWIMMING</button>
       </div>
     </div>
@@ -205,8 +270,13 @@
         <div class="stat"><span class="stat-label">Discoveries</span><span class="stat-value" id="go-discoveries"></span></div>
         <div class="stat"><span class="stat-label">Quiz Performance</span><span class="stat-value" id="go-quiz"></span></div>
         <div class="stat"><span class="stat-label">Cleanup Tokens</span><span class="stat-value" id="go-tokens"></span></div>
+        <div class="stat"><span class="stat-label">Species Rescued</span><span class="stat-value" id="go-species"></span></div>
       </div>
       <button id="btn-restart" class="btn btn-primary btn-xl" data-autofocus>Restart</button>
+      <div class="btn-row">
+        <button id="btn-codex-go" class="btn btn-glass">Marine Life Codex</button>
+        <button id="btn-change-character" class="btn btn-glass">Change Guardian</button>
+      </div>
     </div>
   </section>
 
@@ -223,10 +293,22 @@
         <div class="stat"><span class="stat-label">Discoveries</span><span class="stat-value" id="win-discoveries"></span></div>
         <div class="stat"><span class="stat-label">Quiz Performance</span><span class="stat-value" id="win-quiz"></span></div>
         <div class="stat"><span class="stat-label">Cleanup Tokens</span><span class="stat-value" id="win-tokens"></span></div>
+        <div class="stat"><span class="stat-label">Species Rescued</span><span class="stat-value" id="win-species"></span></div>
       </div>
       <button id="btn-play-again" class="btn btn-primary btn-xl" data-autofocus>Play Again</button>
+      <div class="btn-row">
+        <button id="btn-codex-win" class="btn btn-glass">Marine Life Codex</button>
+      </div>
     </div>
   </section>
+
+  <div id="species-toast" class="species-toast hidden" role="status">
+    <span class="toast-emoji" id="toast-emoji"></span>
+    <div class="toast-body">
+      <b class="toast-name" id="toast-name"></b>
+      <span class="toast-fact" id="toast-fact"></span>
+    </div>
+  </div>
 
   <div id="sr-live" class="sr-only" aria-live="polite"></div>
 </div>
@@ -236,6 +318,7 @@
 <script src="js/input.js"></script>
 <script src="js/entities.js"></script>
 <script src="js/sprites.js"></script>
+<script src="js/characters.js"></script>
 <script src="js/render.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/game.js"></script>

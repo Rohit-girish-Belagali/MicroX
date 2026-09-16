@@ -113,7 +113,9 @@ const Renderer = (() => {
     const g = c.getContext("2d");
     g.scale(dpr, dpr);
     const hy = cam.horizonY;
-    const hf = hy / H;
+    // H can be 0 before layout settles (hidden iframe, preview pane), which
+    // would make every gradient stop NaN and throw out of init().
+    const hf = H > 0 ? hy / H : 0.35;
 
     const water = g.createLinearGradient(0, 0, 0, H);
     water.addColorStop(0, "#3fc1f2");
@@ -610,6 +612,19 @@ const Renderer = (() => {
       ctx.fillStyle = "rgba(0,10,30,0.28)";
       ctx.beginPath(); ctx.ellipse(sh.x, sh.y, sh.s * 0.2, sh.s * 0.06, 0, 0, Math.PI * 2); ctx.fill();
     }
+    // rescue pods pulse so they read as "swim here", not "dodge this"
+    if (o.subtype === "rescuePod") {
+      const p = project(o.laneX, o.y + bob, z);
+      const rr = p.s * spec.w * (0.62 + Math.sin(time * 3.4 + o.bob) * 0.06);
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      const hg = ctx.createRadialGradient(p.x, p.y, rr * 0.4, p.x, p.y, rr);
+      hg.addColorStop(0, "rgba(120,255,210,0.22)");
+      hg.addColorStop(1, "rgba(120,255,210,0)");
+      ctx.fillStyle = hg;
+      ctx.beginPath(); ctx.arc(p.x, p.y, rr, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
     drawSpriteAt(img, o.laneX, o.y + bob, z, spec.w, false, spin);
   }
 
@@ -618,134 +633,11 @@ const Renderer = (() => {
     if (img) drawSpriteAt(img, x, -1.25, z, d.w, true);
   }
 
-  // --------------------------------------------------------------- Turtle --
-  function drawTurtleShape(g, phase, opts) {
-    const o = opts || {};
-    const stroke = Math.sin(phase);
-    const kick = Math.sin(phase + Math.PI * 0.6);
-    const headBob = Math.sin(phase * 2) * 0.012;
-
-    const skin = g.createLinearGradient(0, -0.7, 0, 0.5);
-    skin.addColorStop(0, "#8fd694");
-    skin.addColorStop(1, "#4b9a63");
-
-    // rear flippers
-    [-1, 1].forEach(side => {
-      g.save();
-      g.translate(side * 0.24, 0.3);
-      g.rotate(side * (0.45 + kick * 0.35));
-      g.scale(side, 1);
-      g.fillStyle = "#4a9a62";
-      g.beginPath();
-      g.moveTo(-0.04, -0.02);
-      g.quadraticCurveTo(0.16, 0.04, 0.1, 0.3);
-      g.quadraticCurveTo(-0.02, 0.24, -0.06, 0.04);
-      g.closePath();
-      g.fill();
-      g.strokeStyle = "rgba(10,50,30,0.5)";
-      g.lineWidth = 0.014;
-      g.stroke();
-      g.restore();
-    });
-    g.fillStyle = "#4a9a62";
-    g.beginPath(); g.moveTo(-0.05, 0.38); g.lineTo(0.05, 0.38); g.lineTo(0, 0.5); g.closePath(); g.fill();
-
-    // body skin & head
-    g.fillStyle = "#3f8757";
-    g.beginPath(); g.ellipse(0, -0.06, 0.38, 0.44, 0, 0, Math.PI * 2); g.fill();
-    g.save();
-    g.translate(0, -0.52 + headBob);
-    g.fillStyle = skin;
-    g.beginPath(); g.ellipse(0, 0, 0.15, 0.18, 0, 0, Math.PI * 2); g.fill();
-    g.fillStyle = "rgba(220,255,200,0.5)";
-    [[-0.05, -0.06, 0.035], [0.05, -0.05, 0.03], [0, -0.12, 0.028], [0.07, 0.03, 0.025], [-0.07, 0.02, 0.025]]
-      .forEach(([x, y, r]) => { g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); });
-    [-1, 1].forEach(side => {
-      g.fillStyle = "#0e2a1a";
-      g.beginPath(); g.ellipse(side * 0.135, -0.02, 0.03, 0.04, 0, 0, Math.PI * 2); g.fill();
-      g.fillStyle = "#ffffff";
-      g.beginPath(); g.arc(side * 0.13, -0.035, 0.011, 0, Math.PI * 2); g.fill();
-    });
-    g.restore();
-
-    // front flippers (power stroke)
-    [-1, 1].forEach(side => {
-      g.save();
-      g.translate(side * 0.33, -0.2);
-      g.rotate(side * (-0.35 + stroke * 0.85));
-      g.scale(side, 0.82 + 0.18 * Math.cos(phase));
-      const fg = g.createLinearGradient(0, 0, 0.68, 0);
-      fg.addColorStop(0, "#5cb676");
-      fg.addColorStop(1, "#2f7a4c");
-      g.fillStyle = fg;
-      g.beginPath();
-      g.moveTo(-0.03, -0.07);
-      g.bezierCurveTo(0.2, -0.16, 0.5, -0.1, 0.7, 0.05);
-      g.bezierCurveTo(0.52, 0.09, 0.26, 0.11, -0.03, 0.08);
-      g.closePath();
-      g.fill();
-      g.strokeStyle = "rgba(8,45,25,0.55)";
-      g.lineWidth = 0.016;
-      g.stroke();
-      g.fillStyle = "rgba(215,250,200,0.55)";
-      [[0.14, -0.03, 0.035], [0.29, -0.02, 0.03], [0.43, 0.0, 0.026], [0.56, 0.03, 0.02], [0.2, 0.04, 0.024]]
-        .forEach(([x, y, r]) => { g.beginPath(); g.ellipse(x, y, r * 1.3, r, 0, 0, Math.PI * 2); g.fill(); });
-      g.strokeStyle = "rgba(255,255,255,0.35)";
-      g.lineWidth = 0.014;
-      g.beginPath(); g.moveTo(0.02, -0.08); g.bezierCurveTo(0.22, -0.15, 0.48, -0.1, 0.66, 0.03); g.stroke();
-      g.restore();
-    });
-
-    // shell
-    g.fillStyle = "#6b4d22";
-    g.beginPath(); g.ellipse(0, 0.01, 0.475, 0.455, 0, 0, Math.PI * 2); g.fill();
-    g.fillStyle = "#c9a14f";
-    for (let i = 0; i < 22; i++) {
-      const a = (i / 22) * Math.PI * 2;
-      g.beginPath();
-      g.ellipse(Math.cos(a) * 0.445, 0.01 + Math.sin(a) * 0.425, 0.042, 0.03, a, 0, Math.PI * 2);
-      g.fill();
-    }
-    const shell = g.createRadialGradient(-0.12, -0.17, 0.02, 0, 0, 0.46);
-    shell.addColorStop(0, "#a6e27a");
-    shell.addColorStop(0.5, "#4fa35a");
-    shell.addColorStop(1, "#2a6a3c");
-    g.fillStyle = shell;
-    g.beginPath(); g.ellipse(0, 0, 0.42, 0.4, 0, 0, Math.PI * 2); g.fill();
-
-    g.save();
-    g.beginPath(); g.ellipse(0, 0, 0.42, 0.4, 0, 0, Math.PI * 2); g.clip();
-    g.strokeStyle = "rgba(235,255,170,0.6)";
-    g.lineWidth = 0.02;
-    g.lineJoin = "round";
-    const hexes = [-0.24, -0.02, 0.2];
-    hexes.forEach(cy => {
-      g.beginPath();
-      g.moveTo(-0.08, cy - 0.1); g.lineTo(0.08, cy - 0.1); g.lineTo(0.12, cy); g.lineTo(0.08, cy + 0.1);
-      g.lineTo(-0.08, cy + 0.1); g.lineTo(-0.12, cy); g.closePath();
-      g.stroke();
-      [-1, 1].forEach(sd => {
-        g.beginPath(); g.moveTo(sd * 0.12, cy); g.lineTo(sd * 0.45, cy + 0.02); g.stroke();
-      });
-    });
-    [-1, 1].forEach(sd => {
-      g.beginPath(); g.moveTo(sd * 0.08, -0.34); g.lineTo(sd * 0.3, -0.36); g.stroke();
-      g.beginPath(); g.moveTo(sd * 0.08, 0.3); g.lineTo(sd * 0.3, 0.34); g.stroke();
-    });
-    g.fillStyle = "rgba(255,255,255,0.28)";
-    g.beginPath(); g.ellipse(-0.15, -0.2, 0.15, 0.07, -0.5, 0, Math.PI * 2); g.fill();
-    g.restore();
-
-    if (o.tint) {
-      g.fillStyle = o.tint;
-      g.beginPath(); g.ellipse(0, 0, 0.42, 0.4, 0, 0, Math.PI * 2); g.fill();
-    }
-  }
-
+  // --------------------------------------------------------------- Player --
   function drawTurtle(tt, speed, playing) {
     const p = project(tt.x, 0.3 + tt.y, TURTLE_Z);
     const sh = project(tt.x, 0.004, TURTLE_Z);
-    const scale = p.s * TURTLE_SCALE;
+    const scale = p.s * TURTLE_SCALE * tt.char.stats.bodyScale;
 
     // shadow + neon reflection
     const lift = Math.min(1, tt.y / 1.8);
@@ -780,7 +672,7 @@ const Renderer = (() => {
       ctx.beginPath(); ctx.arc(0, 0, 1.1, 0, Math.PI * 2); ctx.fill();
     }
 
-    drawTurtleShape(ctx, tt.phase, { tint: tt.hitT > 0 ? `rgba(255,80,80,${Math.min(0.5, tt.hitT)})` : null });
+    tt.char.draw(ctx, tt.phase, { tint: tt.hitT > 0 ? `rgba(255,80,80,${Math.min(0.5, tt.hitT)})` : null });
 
     if (tt.collectT > 0) {
       const k = 1 - tt.collectT / 0.35;
@@ -798,7 +690,7 @@ const Renderer = (() => {
 
   function drawShield(tt) {
     const p = project(tt.x, 0.42 + tt.y, TURTLE_Z);
-    const r = p.s * TURTLE_SCALE * 0.82;
+    const r = p.s * TURTLE_SCALE * tt.char.stats.bodyScale * 0.82;
     ctx.save();
     const sg = ctx.createRadialGradient(p.x - r * 0.3, p.y - r * 0.35, r * 0.1, p.x, p.y, r);
     sg.addColorStop(0, "rgba(255,255,255,0.12)");
@@ -1014,19 +906,27 @@ const Renderer = (() => {
     }
   }
 
-  function turtleBadgeURL(size) {
+  const badgeCache = {};
+
+  function characterBadgeURL(charId, size) {
+    const key = charId + "@" + size;
+    if (badgeCache[key]) return badgeCache[key];
+    const char = CHARACTER_BY_ID[charId] || CHARACTER_BY_ID[DEFAULT_CHARACTER_ID];
     const c = document.createElement("canvas");
     c.width = size; c.height = size;
     const g = c.getContext("2d");
     g.translate(size / 2, size * 0.54);
     g.scale(size * 0.46, size * 0.46);
-    drawTurtleShape(g, 1.2, {});
-    return c.toDataURL("image/png");
+    char.draw(g, 1.2, {});
+    badgeCache[key] = c.toDataURL("image/png");
+    return badgeCache[key];
   }
+
+  function turtleBadgeURL(size) { return characterBadgeURL(DEFAULT_CHARACTER_ID, size); }
 
   return {
     init, resize, update, draw,
-    burstWorld, floatText, shake, flash, turtleBadgeURL,
+    burstWorld, floatText, shake, flash, turtleBadgeURL, characterBadgeURL,
     isReducedMotion: () => reducedMotion
   };
 })();
