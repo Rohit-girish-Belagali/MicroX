@@ -126,10 +126,12 @@ const Game = (() => {
     }
   }
 
-  // End of a run, either way. fillEndScreen also records a new best score.
+  // End of a run, either way. fillEndScreen records a new local best score;
+  // UI.recordRun merges the run into the player's cloud save if they have one.
   function finish(result) {
     goTo(result);
     UI.hideHint();
+    UI.recordRun(world, character.id);
     if (result === S.WIN) {
       UI.fillEndScreen("win", world);
       UI.showScreen("screen-win");

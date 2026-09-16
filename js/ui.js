@@ -90,6 +90,7 @@ const UI = (() => {
     if (!id || !SPECIES_BY_ID[id] || knownSpecies.has(id)) return;
     knownSpecies.add(id);
     saveCodex();
+    Cloud.syncSpecies([...knownSpecies]);   // no-op when playing offline
   }
 
   function loadCharacter() {
@@ -661,6 +662,114 @@ const UI = (() => {
     $("species-toast").classList.add("hidden");
   }
 
+  // ------------------------------------------------- Player name & saves --
+  // Progress is stored under a name only; Cloud handles the anonymous session.
+  // Everything here works signed out too, falling back to local values.
+
+  function openAuth() {
+    $("auth-name").value = Cloud.playerName();
+    $("auth-msg").classList.add("hidden");
+    pushScreen("screen-auth");
+  }
+
+  // Name entered -> hand it to Cloud, then show what they have earned so far.
+  async function submitName(e) {
+    e.preventDefault();
+    const btn = $("btn-auth-submit");
+    const msg = $("auth-msg");
+    btn.disabled = true;
+    btn.textContent = "Saving...";
+    const res = await Cloud.setName($("auth-name").value);
+    btn.disabled = false;
+    btn.textContent = "Save My Progress";
+
+    if (res.error) {
+      msg.textContent = res.error;
+      msg.classList.remove("hidden");
+      return;
+    }
+    refreshAccountButton();
+    openAccount();
+  }
+
+  // The start-screen button doubles as the player's name once they have one.
+  function refreshAccountButton() {
+    const name = Cloud.playerName();
+    $("btn-account").textContent = name ? name : "My Achievements";
+  }
+
+  function openAccount() {
+    // No name yet: ask for one first, there is nothing to show otherwise.
+    if (!Cloud.hasName()) { openAuth(); return; }
+    fillAccount();
+    pushScreen("screen-account");
+  }
+
+  // Prefers the cloud row; falls back to local storage when offline so the
+  // screen is never empty just because the network is.
+  function fillAccount() {
+    const s = Cloud.currentSave();
+    const localSpecies = knownSpecies.size;
+    const name = Cloud.playerName();
+    $("account-name").textContent = Cloud.isOffline()
+      ? `${name} — saved on this device only`
+      : name;
+
+    const best = s ? s.best_score : getBest();
+    const meters = s ? s.best_meters : 0;
+    const runs = s ? s.runs_played : 0;
+    const total = s ? s.total_meters : 0;
+    const tokens = s ? s.tokens_total : 0;
+    const species = s ? Math.max(s.species.length, localSpecies) : localSpecies;
+    const disc = s ? s.discoveries.length : 0;
+    const qc = s ? s.quiz_correct : 0;
+    const qt = s ? s.quiz_total : 0;
+
+    $("acc-best").textContent = (best || 0).toLocaleString();
+    $("acc-meters").textContent = `${(meters || 0).toLocaleString()}m`;
+    $("acc-runs").textContent = runs || 0;
+    $("acc-total").textContent = `${(total || 0).toLocaleString()}m`;
+    $("acc-tokens").textContent = tokens || 0;
+    $("acc-species").textContent = `${species}/${MARINE_SPECIES.length}`;
+    $("acc-disc").textContent = `${disc}/${LEARNING_MODULES.length}`;
+    $("acc-quiz").textContent = qt > 0 ? `${qc}/${qt} (${Math.round((qc / qt) * 100)}%)` : "—";
+
+    renderBadges({ best, meters, runs, species, disc, tokens });
+  }
+
+  // Milestones worth celebrating. Earned ones light up, the rest stay dim so
+  // the player can see what to aim for next.
+  const BADGES = [
+    { id: "first",     icon: "🌊", name: "First Swim",       test: s => s.runs >= 1,     hint: "Finish one run" },
+    { id: "explorer",  icon: "🧭", name: "Explorer",         test: s => s.meters >= 500,  hint: "Reach 500m" },
+    { id: "voyager",   icon: "🚀", name: "Deep Voyager",     test: s => s.meters >= 2500, hint: "Reach 2,500m" },
+    { id: "rescuer",   icon: "🐬", name: "Rescuer",          test: s => s.species >= 3,   hint: "Rescue 3 species" },
+    { id: "biologist", icon: "🔬", name: "Marine Biologist", test: s => s.species >= 12,  hint: "Complete the Codex" },
+    { id: "student",   icon: "📚", name: "Ocean Student",    test: s => s.disc >= 5,      hint: "Finish 5 lessons" },
+    { id: "scholar",   icon: "🎓", name: "Ocean Scholar",    test: s => s.disc >= 9,      hint: "Finish every lesson" },
+    { id: "cleaner",   icon: "♻️", name: "Cleanup Crew",     test: s => s.tokens >= 25,   hint: "Collect 25 tokens" },
+    { id: "champion",  icon: "🏆", name: "Champion",         test: s => s.best >= 5000,   hint: "Score 5,000" }
+  ];
+
+  function renderBadges(stats) {
+    const grid = $("acc-badges");
+    grid.innerHTML = "";
+    BADGES.forEach(b => {
+      const earned = b.test(stats);
+      const el = document.createElement("div");
+      el.className = "badge" + (earned ? " earned" : "");
+      el.innerHTML = `<span class="badge-ico">${b.icon}</span>
+                      <span class="badge-name">${b.name}</span>
+                      <span class="badge-hint">${earned ? "Earned" : b.hint}</span>`;
+      grid.appendChild(el);
+    });
+  }
+
+  // Called by game.js when a run ends, so the cloud row reflects it.
+  function recordRun(world, characterId) {
+    Cloud.recordRun(world, characterId);
+  }
+
   // --------------------------------------------------------- End screens
   // Both end screens share a field layout, distinguished by an id prefix
   // ("go" for game over, "win" for the win screen).
@@ -698,6 +807,30 @@ const UI = (() => {
     $("win-img").src = turtleImg;
     $("best-score").textContent = getBest().toLocaleString();
 
+    $("auth-form").addEventListener("submit", submitName);
+    $("btn-account").addEventListener("click", () => { AudioFx.ui(); openAccount(); });
+    $("btn-change-name").addEventListener("click", () => { AudioFx.ui(); openAuth(); });
+    refreshAccountButton();
+
+    // Bring the cloud up in the background; the menu is usable immediately.
+    Cloud.init().then(() => {
+      refreshAccountButton();
+      // Merge anything the cloud knows that this device does not.
+      const s2 = Cloud.currentSave();
+      if (s2 && Array.isArray(s2.species)) {
+        s2.species.forEach(id => { if (SPECIES_BY_ID[id]) knownSpecies.add(id); });
+        saveCodex();
+      }
+      if (s2 && s2.best_score > getBest()) {
+        saveBest(s2.best_score);
+        $("best-score").textContent = s2.best_score.toLocaleString();
+      }
+      if (s2 && s2.character_id && CHARACTER_BY_ID[s2.character_id]) {
+        chosenCharacter = s2.character_id;
+        selectCharacter(chosenCharacter);
+      }
+    });
+
     $("btn-fact-next").addEventListener("click", () => { AudioFx.ui(); renderAwareness(); });
     $("btn-species-next").addEventListener("click", () => { AudioFx.ui(); renderQuiz(); });
     $("btn-codex-back").addEventListener("click", () => { AudioFx.ui(); closeCodexDetail(); });
@@ -713,6 +846,7 @@ const UI = (() => {
     init, showScreen: pushScreen, setHudVisible, updateHUD, resetHUD, showHint, hideHint,
     startLearning, startSpotlight, fillEndScreen, announce,
     openCharacterSelect, selectedCharacter, rememberCharacter,
-    openCodex, isSpeciesKnown, unlockSpecies, showSpeciesToast, hideToast
+    openCodex, isSpeciesKnown, unlockSpecies, showSpeciesToast, hideToast,
+    openAccount, openAuth, recordRun
   };
 })();
