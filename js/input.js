@@ -30,10 +30,14 @@ const Input = (() => {
     emit(intent);
   });
 
+  // Scaled to the viewport so the same flick works on a phone and a desktop.
   function swipeThreshold() {
     return Math.max(22, Math.min(window.innerWidth, window.innerHeight) * 0.05);
   }
 
+  // Touch and mouse-drag share one gesture recogniser. The dominant axis wins,
+  // and the action fires the moment the threshold is crossed rather than on
+  // release, so controls feel immediate.
   function attachSwipe(el) {
     let sx = 0, sy = 0, tracking = false;
 

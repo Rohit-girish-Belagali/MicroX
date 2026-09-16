@@ -1,7 +1,13 @@
 // ===================== game.js =====================
 // State machine + main loop. Ties input, entities, renderer and UI together.
+//
+// Flow of a run:
+//   START -> PLAYING -> (COLLISION -> LEARNING -> PLAYING)* -> WIN | GAME_OVER
+// COLLISION is a short beat that lets the hit/rescue animation play before a
+// modal takes over the screen; LEARNING is owned entirely by ui.js.
 
 const Game = (() => {
+  // Mirrored onto document.body.dataset.state so CSS can react to the phase.
   const S = {
     START: "START_SCREEN",
     PLAYING: "PLAYING",
@@ -12,30 +18,41 @@ const Game = (() => {
     WIN: "WIN_SCREEN"
   };
 
+  // Speed is in world units per second (1 unit = one lane width).
   const BASE_SPEED = 13;
   const MAX_SPEED = 42;
   const WARMUP_METERS = 150;   // settle-in period before the ramp starts
   const RAMP_METERS = 2350;    // top speed reached just before the finish
-  const METERS_PER_UNIT = 0.5;
+  const METERS_PER_UNIT = 0.5; // world units -> the metres shown in the HUD
   const WIN_METERS = 2500;
+
+  // Collision half-extents. Z is along the track, X across the lanes. The
+  // pickup box is deliberately looser than the hit box so collectibles feel
+  // generous and obstacles feel fair.
   const HIT_Z = 0.55, HIT_X = 0.6;
   const PICK_Z = 0.8, PICK_X = 0.7;
-  const GRACE_AFTER_LEARNING = 1.4;
-  const ATTRACT_SPEED = 9;
+
+  const GRACE_AFTER_LEARNING = 1.4;  // seconds of invulnerability on resume
+  const ATTRACT_SPEED = 9;           // idle drift speed behind the menus
 
   let canvas, ctx;
   let state = S.START;
-  let lastTime = 0;
+  let lastTime = 0;                  // timestamp of the previous frame
+
   let character = CHARACTER_BY_ID[DEFAULT_CHARACTER_ID];
-  let turtle = new Player(character);
+  let turtle = new Player(character); // the swimmer; named "turtle" historically
   let spawner = new Spawner();
-  let objects = [];
-  let world = freshWorld();
-  let prevDistance = 0;
-  let collisionTimer = 0;
+  let objects = [];                  // every live obstacle and collectible
+  let world = freshWorld();          // per-run score, lives and progress
+
+  let prevDistance = 0;              // last frame's distance, for swept hit tests
+  let collisionTimer = 0;            // counts down the COLLISION beat
+  // Whichever of these is set decides which lesson the LEARNING state opens.
   let pendingModule = null;
   let pendingSpecies = null;
 
+  // Everything that resets between runs. Lives come from the chosen character,
+  // so the otter starts with four and everyone else with three.
   function freshWorld() {
     const hearts = character.stats.hearts;
     return {
@@ -50,9 +67,12 @@ const Game = (() => {
     };
   }
 
+  // Faster swimming means faster flipper strokes, so the animation keeps pace.
   function strokeRate(speed) { return 5 + speed * 0.17; }
 
   // ------------------------------------------------------------- Canvas --
+  // Backing store is sized in device pixels while CSS keeps the layout size,
+  // so the canvas stays sharp on retina screens. Capped at 2x to bound cost.
   function resizeCanvas() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const w = window.innerWidth, h = window.innerHeight;
@@ -65,6 +85,8 @@ const Game = (() => {
   }
 
   // -------------------------------------------------------------- States --
+  // Single place the phase changes: keeps the CSS hook and the input gate in
+  // sync, so stray keystrokes can never move the player behind a modal.
   function goTo(next) {
     state = next;
     document.body.dataset.state = next;
@@ -93,6 +115,7 @@ const Game = (() => {
     goTo(S.PLAYING);
   }
 
+  // Pause is a no-op outside PLAYING/PAUSED, so it cannot interrupt a lesson.
   function togglePause() {
     if (state === S.PLAYING) {
       goTo(S.PAUSED);
@@ -103,6 +126,7 @@ const Game = (() => {
     }
   }
 
+  // End of a run, either way. fillEndScreen also records a new best score.
   function finish(result) {
     goTo(result);
     UI.hideHint();
@@ -117,6 +141,7 @@ const Game = (() => {
   }
 
   // --------------------------------------------------------------- Input --
+  // input.js reports intents, not keys, so keyboard and swipe share this path.
   function handleIntent(intent) {
     if (state === S.PLAYING) {
       switch (intent) {
@@ -135,25 +160,35 @@ const Game = (() => {
   function checkCollisions() {
     for (const o of objects) {
       if (!o.alive) continue;
+      // z: how far ahead the object is now. pz: where it was last frame.
       const z = o.worldZ - world.distance;
       const pz = o.worldZ - prevDistance;
-      const dx = Math.abs(turtle.x - o.laneX);
+      const dx = Math.abs(turtle.x - o.laneX);   // lateral gap, in lane widths
 
       if (o.kind === "obstacle") {
+        // "cleared" marks an obstacle already jumped this pass, so a long
+        // sprite cannot register a second hit on the way down.
         if (o.cleared || turtle.invulnT > 0) continue;
         // swept test so fast speeds can't tunnel through an obstacle between frames
         if (!(pz >= -HIT_Z && z <= HIT_Z) || dx > HIT_X) continue;
+        // Airborne above the obstacle's height clears it; nets are 99 tall,
+        // which is what makes them un-jumpable and forces a lane change.
         if (turtle.y >= OBSTACLE_SPECS[o.subtype].height) { o.cleared = true; continue; }
         hitObstacle(o);
-        return;
+        return;   // one hit per frame, so a cluster costs a single life
       }
 
+      // Collectibles: same swept test, plus a vertical check plus so items on a
+      // jump arc are only picked up when the player is actually up there.
       if (!(pz >= -PICK_Z && z <= PICK_Z) || dx > PICK_X) continue;
       if (Math.abs(o.y - (turtle.y + 0.45)) > 0.95) continue;
       collect(o);
     }
   }
 
+  // Awards points and fires the feedback that matches the item's kind. z is
+  // clamped away from zero so effects spawned right on top of the player are
+  // still projected in front of the camera rather than behind it.
   function collect(o) {
     o.alive = false;
     const cfg = COLLECTIBLE_TYPES[o.subtype];
@@ -167,6 +202,7 @@ const Game = (() => {
     }
 
     if (cfg.kind === "shield") {
+      // A shield absorbs exactly one hit; see hitObstacle.
       world.shieldActive = true;
       Renderer.burstWorld(o.laneX, o.y, z, ["#8ff6ff", "#ff9be8", "#ffffff"], 18);
       Renderer.floatText("SHIELD!", o.laneX, o.y + 0.8, z, "#8ff6ff");
@@ -200,23 +236,27 @@ const Game = (() => {
     AudioFx.bonus();
 
     if (firstEver) {
+      // Worth stopping for: full species card and a question.
       pendingSpecies = species;
       collisionTimer = 0.55;
       UI.updateHUD(world);
       goTo(S.COLLISION);
     } else {
+      // Already in the Codex, so just a passing reminder; the run continues.
       UI.showSpeciesToast(species);
     }
   }
 
+  // Taking a hit: spend the shield if there is one, otherwise a life. Either
+  // way the run stops for the matching lesson.
   function hitObstacle(o) {
     o.alive = false;
     const shielded = world.shieldActive;
     if (shielded) world.shieldActive = false;
     else world.hearts = Math.max(0, world.hearts - 1);
 
-    turtle.hitT = 0.6;
-    turtle.vy = Math.min(turtle.vy, 0);
+    turtle.hitT = 0.6;                     // drives the red flash on the sprite
+    turtle.vy = Math.min(turtle.vy, 0);    // kill any upward momentum
     Renderer.burstWorld(o.laneX, 0.6, 0.5, shielded ? ["#8ff6ff", "#ffffff"] : ["#ff5c5c", "#ffb35c", "#ffffff"], 26);
     Renderer.floatText(shielded ? "SHIELD SAVED YOU!" : "OUCH!", turtle.x, 1.9, 0.4, shielded ? "#8ff6ff" : "#ff8a8a");
     Renderer.shake(18, 0.4);
@@ -226,12 +266,16 @@ const Game = (() => {
     const activated = navigator.userActivation ? navigator.userActivation.hasBeenActive : true;
     if (navigator.vibrate && activated) { try { navigator.vibrate(120); } catch (e) { /* unsupported */ } }
 
+    // Queue the lesson for this litter type and hold in COLLISION for a beat
+    // so the shake, flash and particles are visible before the modal opens.
     pendingModule = MODULE_BY_OBSTACLE_TYPE[o.subtype];
     collisionTimer = 0.7;
     UI.updateHUD(world);
     goTo(S.COLLISION);
   }
 
+  // Called once the COLLISION beat expires. Species take priority because a
+  // rescue never sets pendingModule, so at most one of the two is ever live.
   function enterLearning() {
     goTo(S.LEARNING);
     if (pendingSpecies) {
@@ -245,8 +289,12 @@ const Game = (() => {
     }
   }
 
+  // Shared tail of both lessons: decide whether the run is over, otherwise
+  // hand control back with a moment of invulnerability so the player is not
+  // hit again by the very obstacle they just read about.
   function resume() {
     if (world.hearts <= 0) { finish(S.GAME_OVER); return; }
+    // Seeing every pollution module is an alternative win, besides distance.
     if (world.discoveries.size >= LEARNING_MODULES.length) { finish(S.WIN); return; }
 
     turtle.invulnT = GRACE_AFTER_LEARNING;
@@ -262,6 +310,8 @@ const Game = (() => {
     resume();
   }
 
+  // Unlocking here rather than on pickup means the Codex only records species
+  // whose card the player actually read through.
   function onSpotlightComplete(result) {
     UI.unlockSpecies(result.speciesId);
     world.quizCorrect += result.correctCount;
@@ -273,10 +323,12 @@ const Game = (() => {
   function update(dt) {
     switch (state) {
       case S.PLAYING: {
+        // The world scrolls past a stationary player: "distance" is how far
+        // the track has moved, and every object's worldZ is measured against it.
         prevDistance = world.distance;
         world.distance += world.speed * dt;
         world.meters = world.distance * METERS_PER_UNIT;
-        world.score += world.speed * dt * 0.25;
+        world.score += world.speed * dt * 0.25;   // a trickle just for surviving
 
         // Steady, predictable climb across the whole run: flat while the player
         // settles in, then near-linear so top speed arrives near the finish.
@@ -287,29 +339,39 @@ const Game = (() => {
         turtle.update(dt, strokeRate(world.speed));
         spawner.update(world.distance, world.speedFactor, objects);
         checkCollisions();
+        // Drop anything consumed or now behind the camera.
         objects = objects.filter(o => o.alive && o.worldZ - world.distance > -4);
         Renderer.update(dt, world.speed);
 
+        // checkCollisions may have moved us to COLLISION, so re-check the phase
+        // before declaring a win on the same frame as a hit.
         if (state === S.PLAYING && world.meters >= WIN_METERS) finish(S.WIN);
         break;
       }
+      // Frozen mid-run: the world stops scrolling but the sprite keeps moving
+      // so the hit or rescue animation reads before a modal covers it.
       case S.COLLISION:
         collisionTimer -= dt;
         turtle.idle(dt, 3);
         Renderer.update(dt, 0);
         if (collisionTimer <= 0) enterLearning();
         break;
+      // Attract mode: the track drifts gently behind the menus.
       case S.START:
         world.distance += ATTRACT_SPEED * dt;
         turtle.idle(dt, strokeRate(ATTRACT_SPEED));
         Renderer.update(dt, ATTRACT_SPEED);
         break;
+      // PAUSED, LEARNING and the end screens: everything holds still except a
+      // slow idle stroke, so the scene behind the panel is not frozen solid.
       default:
         turtle.idle(dt, 2.2);
         Renderer.update(dt, 0);
     }
   }
 
+  // What the renderer should treat as forward speed for motion blur and
+  // streaks, which is not the same as the gameplay speed once a modal is up.
   function frameSpeed() {
     if (state === S.PLAYING) return world.speed;
     if (state === S.START) return ATTRACT_SPEED;
@@ -317,6 +379,8 @@ const Game = (() => {
   }
 
   function loop(ts) {
+    // Clamped to 50 ms so a backgrounded tab cannot resume with one huge step
+    // that teleports the player through a wall of obstacles.
     const dt = Math.min(0.05, Math.max(0, (ts - lastTime) / 1000));
     lastTime = ts;
     update(dt);
@@ -328,11 +392,13 @@ const Game = (() => {
       playing: state === S.PLAYING,
       shieldActive: world.shieldActive
     });
+    // The HUD only diffs while playing; elsewhere its values cannot change.
     if (state === S.PLAYING) UI.updateHUD(world);
     requestAnimationFrame(loop);
   }
 
   // ------------------------------------------------------------- Wiring --
+  // Every button plays the same click sound, so wrap the wiring once.
   function bindButtons() {
     const on = (id, fn) => document.getElementById(id).addEventListener("click", () => { AudioFx.ui(); fn(); });
     on("btn-play", () => UI.openCharacterSelect());
@@ -362,6 +428,7 @@ const Game = (() => {
     resizeCanvas();
     window.addEventListener("resize", resizeCanvas);
     window.addEventListener("orientationchange", () => setTimeout(resizeCanvas, 150));
+    // Tabbing away mid-run pauses rather than letting the player die unseen.
     document.addEventListener("visibilitychange", () => {
       if (document.hidden && state === S.PLAYING) togglePause();
     });
@@ -375,6 +442,8 @@ const Game = (() => {
     UI.setHudVisible(false);
     UI.showScreen("screen-start");
 
+    // Seed lastTime from a real frame so the first dt is ~0 rather than the
+    // whole time since page load.
     requestAnimationFrame((ts) => { lastTime = ts; requestAnimationFrame(loop); });
   }
 

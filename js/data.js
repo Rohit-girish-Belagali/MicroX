@@ -1,6 +1,13 @@
 // ===================== data.js =====================
-// Educational content + obstacle/collectible type configuration.
-// Kept as a clean, editable data structure per the design spec.
+// All educational content, kept as plain data so a teacher can edit the text
+// without touching game logic. Nothing here knows about rendering or state.
+//
+// A module is tied to one obstacle type and runs when the player hits it:
+//   factTitle/fact               the headline shown on impact
+//   awarenessTitle/Paragraphs    the longer explanation
+//   quiz                         two questions, each with an explanation
+// Adding a module means adding it here, plus an OBSTACLE_SPECS entry in
+// entities.js and a sprite in sprites.js. Counters derive from the list length.
 
 const LEARNING_MODULES = [
   {
@@ -338,11 +345,16 @@ const LEARNING_MODULES = [
   }
 ];
 
+// Lookup used on collision to find the lesson for the litter that was hit.
 const MODULE_BY_OBSTACLE_TYPE = {};
 LEARNING_MODULES.forEach(m => { MODULE_BY_OBSTACLE_TYPE[m.obstacleType] = m; });
 
+// Feeds the spawner's shuffle bag; every entry needs a spec and a sprite.
 const OBSTACLE_TYPES = ["bottle", "bag", "net", "straw", "wrapper", "cup", "sixpack", "balloon", "microbeads"];
 
+// points = score awarded; kind = how game.js handles the pickup.
+// "food"/"bonus" score only, "shield" absorbs a hit, "token" counts towards
+// the cleanup tally, "species" unlocks a Codex entry.
 const COLLECTIBLE_TYPES = {
   fish: { points: 10, kind: "food" },
   seaweed: { points: 10, kind: "food" },

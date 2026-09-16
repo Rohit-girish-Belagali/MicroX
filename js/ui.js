@@ -1,21 +1,23 @@
 // ===================== ui.js =====================
-// DOM screens, HUD, and the 3-stage learning flow (fact -> awareness -> quiz).
+// Everything DOM: the screen stack, the HUD, the two lesson flows and the
+// Marine Life Codex. Canvas rendering lives in render.js; this file never
+// touches the game state directly, it only reports back through callbacks.
 
 const UI = (() => {
   const $ = (id) => document.getElementById(id);
   const screens = {};
   const hud = {};
-  let learning = null;
-  let onLearningDone = null;
+  let learning = null;        // the lesson in progress, null when none
+  let onLearningDone = null;  // game.js callback, fired when it completes
   let hintTimer = null;
   const BEST_KEY = "oceanGuardian.bestScore";
   const CODEX_KEY = "oceanGuardian.codex";
   const CHAR_KEY = "oceanGuardian.character";
-  let knownSpecies = new Set();
+  let knownSpecies = new Set();               // persists across sessions
   let chosenCharacter = DEFAULT_CHARACTER_ID;
   let toastTimer = null;
-  let currentScreen = null;
-  let returnScreen = "screen-start";
+  let currentScreen = null;                   // which screen is up right now
+  let returnScreen = "screen-start";          // where Back should go
 
   const HEART_SVG = '<svg viewBox="0 0 24 22" aria-hidden="true"><path d="M12 20.6 10.5 19.3C5 14.3 1.4 11 1.4 7a5.6 5.6 0 0 1 5.7-5.6c1.8 0 3.6.9 4.9 2.3a6.5 6.5 0 0 1 4.9-2.3A5.6 5.6 0 0 1 22.6 7c0 4-3.6 7.3-9.1 12.3z"/></svg>';
 
@@ -23,12 +25,15 @@ const UI = (() => {
     document.querySelectorAll(".screen").forEach(el => { screens[el.id] = el; });
   }
 
+  // Move focus to the natural first control so the keyboard and screen
+  // readers land somewhere sensible whenever a screen changes.
   function focusFirst(container) {
     const target = container.querySelector("[data-autofocus]:not(.hidden)") ||
       container.querySelector("button:not([disabled]):not(.hidden)");
     if (target) setTimeout(() => target.focus({ preventScroll: true }), 40);
   }
 
+  // Only ever one screen visible; pass null to show the game itself.
   function showScreen(id) {
     Object.values(screens).forEach(el => el.classList.add("hidden"));
     currentScreen = id || null;
@@ -49,6 +54,8 @@ const UI = (() => {
 
   function setHudVisible(v) { $("hud").classList.toggle("hidden", !v); }
 
+  // Writes into the aria-live region so screen readers hear state changes
+  // that are otherwise only conveyed by the canvas.
   function announce(msg) { $("sr-live").textContent = msg; }
 
   // -------------------------------------------------------------- Best --
@@ -60,12 +67,16 @@ const UI = (() => {
   }
 
   // ------------------------------------------------------------- Codex --
+  // Every storage call is wrapped: private browsing and blocked site data
+  // both make localStorage throw rather than simply return null.
   function loadCodex() {
     let ids = [];
     try {
       const raw = localStorage.getItem(CODEX_KEY);
       if (raw) ids = JSON.parse(raw);
     } catch (e) { ids = []; }
+    // Filtered against the current species list, so an id left over from an
+    // older build cannot poison the count or the progress bar.
     knownSpecies = new Set(Array.isArray(ids) ? ids.filter(id => SPECIES_BY_ID[id]) : []);
   }
 
@@ -95,6 +106,9 @@ const UI = (() => {
   }
 
   // --------------------------------------------------------------- HUD --
+  // Built once at startup. Hearts are created for the roomiest character and
+  // the surplus is hidden per run; discovery icons come from the module list,
+  // so adding a module needs no HTML change.
   function buildHud() {
     const hearts = $("hud-hearts");
     hearts.innerHTML = "";
@@ -118,10 +132,15 @@ const UI = (() => {
     });
   }
 
+  // `hud` caches the last value written for each field. Clearing it forces
+  // the next updateHUD to repaint everything, which is what we want after a
+  // modal or a restart.
   function resetHUD() {
     Object.keys(hud).forEach(k => delete hud[k]);
   }
 
+  // Runs every frame, so each field is diffed against its cached value and
+  // only touched when it actually changed.
   function updateHUD(s) {
     if (hud.hearts !== s.hearts || hud.maxHearts !== s.maxHearts) {
       const prev = hud.hearts;
@@ -132,6 +151,9 @@ const UI = (() => {
         el.hidden = i >= s.maxHearts;
         el.classList.toggle("full", i < s.hearts);
         el.classList.toggle("empty", i >= s.hearts);
+        // Replay the "lost" animation on the heart that just went out.
+        // Removing the class and reading offsetWidth forces a reflow, which
+        // is what lets the same animation restart. Same trick recurs below.
         if (prev !== undefined && s.hearts < prev && i === s.hearts) {
           el.classList.remove("lost");
           void el.offsetWidth;
@@ -144,6 +166,7 @@ const UI = (() => {
     const score = Math.floor(s.score);
     if (hud.score !== score) {
       const el = $("hud-score");
+      // Only pop for a real pickup, not the steady trickle from swimming.
       if (hud.score !== undefined && score - hud.score >= 10) {
         el.classList.remove("pop");
         void el.offsetWidth;
@@ -169,6 +192,7 @@ const UI = (() => {
     if (hud.shield !== s.shieldActive) { hud.shield = s.shieldActive; $("hud-shield").hidden = !s.shieldActive; }
   }
 
+  // The swipe/keys reminder shown at the start of a run.
   function showHint() {
     const el = $("swipe-hint");
     el.classList.remove("hidden", "play");
@@ -189,7 +213,9 @@ const UI = (() => {
   // (fact -> awareness -> 2-question quiz); a species spotlight walks two
   // (species card -> 1 question). `learning.steps` drives the step pips.
 
+  // Pollution flow: fact -> awareness -> two questions -> result.
   function startLearning(module, callback) {
+    // Unknown obstacle type: resume rather than wedge the game behind a modal.
     if (!module) { if (callback) callback({ moduleId: null, correctCount: 0, questionCount: 0 }); return; }
     learning = {
       mode: "module", module, steps: 3,
@@ -201,6 +227,7 @@ const UI = (() => {
     renderFact();
   }
 
+  // Species flow: card -> one question -> result. Same DOM, fewer stages.
   function startSpotlight(species, callback) {
     if (!species) { if (callback) callback({ speciesId: null, correctCount: 0, questionCount: 0 }); return; }
     learning = {
@@ -234,6 +261,8 @@ const UI = (() => {
     $("learn-count").textContent = `${step}/${total}`;
   }
 
+  // Swap the visible stage inside the lesson modal and replay its entrance
+  // animation, since the element itself is reused between stages.
   function showStage(id) {
     document.querySelectorAll(".learn-stage").forEach(el => el.classList.add("hidden"));
     const stage = $(id);
@@ -295,6 +324,8 @@ const UI = (() => {
     announce(`Species rescued: ${sp.name}. ${sp.facts[0]}`);
   }
 
+  // Maps an IUCN status onto the colour ramp defined in style.css
+  // (st-0 green through st-4 red).
   function statusClass(status) {
     const rank = STATUS_RANK[status];
     return rank === undefined ? "st-0" : "st-" + rank;
@@ -349,6 +380,8 @@ const UI = (() => {
     announce(`Question ${learning.qIndex + 1} of ${total}. ${q.question}`);
   }
 
+  // One answer per question: `answered` blocks double-clicks and stops a
+  // second pick overwriting the first after the options are marked up.
   function selectAnswer(i) {
     if (!learning || learning.answered) return;
     learning.answered = true;
@@ -356,6 +389,8 @@ const UI = (() => {
     const correct = i === q.correctAnswer;
     if (correct) { learning.correct++; AudioFx.correct(); } else { AudioFx.wrong(); }
 
+    // Mark every option: the right answer is always revealed, even when the
+    // player got it wrong, because the point here is learning not scoring.
     document.querySelectorAll(".quiz-option").forEach((el, idx) => {
       el.disabled = true;
       el.setAttribute("aria-disabled", "true");
@@ -418,6 +453,8 @@ const UI = (() => {
     announce(`Complete. Quiz score ${n} out of ${total}.`);
   }
 
+  // Hands the outcome back to game.js. Local state is cleared before the
+  // callback runs, because that callback may immediately start another lesson.
   function completeLearning() {
     if (!learning) return;
     const result = {
@@ -434,6 +471,8 @@ const UI = (() => {
   }
 
   // --------------------------------------------------- Character select --
+  // Portraits are the real in-game art, rendered to a data URL once by
+  // render.js, so the card always matches what the player will be swimming as.
   function buildCharacterCards() {
     const grid = $("char-grid");
     grid.innerHTML = "";
@@ -471,6 +510,8 @@ const UI = (() => {
     });
   }
 
+  // Selection is local until Start Swimming is pressed; game.js is the one
+  // that persists it, so backing out of the screen changes nothing.
   function selectCharacter(id) {
     if (!CHARACTER_BY_ID[id]) return;
     chosenCharacter = id;
@@ -492,6 +533,8 @@ const UI = (() => {
   function selectedCharacter() { return chosenCharacter; }
 
   // ------------------------------------------------------------- Codex --
+  // Cards are created once for all species; refreshCodexGrid fills in what
+  // is actually known each time the screen opens.
   function buildCodexGrid() {
     const grid = $("codex-grid");
     grid.innerHTML = "";
@@ -520,6 +563,8 @@ const UI = (() => {
     });
   }
 
+  // Locked entries show a silhouette and are non-interactive, so the Codex
+  // doubles as a checklist of what is still out there to find.
   function refreshCodexGrid() {
     document.querySelectorAll(".codex-card").forEach(el => {
       const sp = SPECIES_BY_ID[el.dataset.id];
@@ -547,6 +592,8 @@ const UI = (() => {
     pushScreen("screen-codex");
   }
 
+  // The detail view replaces the grid inside the same panel rather than
+  // opening a second screen, which keeps Back a single, predictable step.
   function openCodexDetail(id) {
     const sp = SPECIES_BY_ID[id];
     if (!sp) return;
@@ -615,6 +662,8 @@ const UI = (() => {
   }
 
   // --------------------------------------------------------- End screens
+  // Both end screens share a field layout, distinguished by an id prefix
+  // ("go" for game over, "win" for the win screen).
   function fillEndScreen(prefix, s) {
     const score = Math.floor(s.score);
     $(`${prefix}-score`).textContent = score.toLocaleString();
@@ -624,6 +673,7 @@ const UI = (() => {
     const acc = s.quizTotal > 0 ? Math.round((s.quizCorrect / s.quizTotal) * 100) : 0;
     $(`${prefix}-quiz`).textContent = s.quizTotal > 0 ? `${s.quizCorrect}/${s.quizTotal} (${acc}%)` : "—";
     $(`${prefix}-tokens`).textContent = s.tokens;
+    // Saving here means the best score updates however the run ended.
     const best = getBest();
     const isBest = score > best;
     if (isBest) { saveBest(score); $("best-score").textContent = score.toLocaleString(); }
@@ -631,6 +681,8 @@ const UI = (() => {
   }
 
   // ----------------------------------------------------------------- Init
+  // Called once from Game.init, after Sprites and Renderer are ready, since
+  // the cards and badges below need both.
   function init() {
     cacheScreens();
     loadCodex();

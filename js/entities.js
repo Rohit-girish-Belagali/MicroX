@@ -2,11 +2,14 @@
 // World-space gameplay entities. Units: 1 unit = one lane width.
 // z is distance ahead of the turtle along the track (turtle sits at z = 0).
 
-const LANE_X = [-1, 0, 1];
-const GRAVITY = 36;
-const SPAWN_AHEAD = 88;
+const LANE_X = [-1, 0, 1];   // lane index -> x position, in lane widths
+const GRAVITY = 36;          // tuned against JUMP so a hop lasts ~0.6 s
+const SPAWN_AHEAD = 88;      // keep the track populated this far in front
 
-// w = sprite width in world units; height = collision height (turtle must be above it).
+// w      = sprite width in world units, used for drawing.
+// height = how high the player must be to clear it. The net's 99 makes it
+//          impossible to jump, which is what forces a lane change.
+// hover  = how far off the track floor the sprite sits.
 const OBSTACLE_SPECS = {
   bottle:  { w: 0.95, height: 0.95, hover: 0.05 },
   bag:     { w: 1.15, height: 0.9,  hover: 0.08 },
@@ -25,6 +28,7 @@ const COLLECTIBLE_SPECS = {
   rescuePod: { w: 0.95 }
 };
 
+// Shared by every module below (and by game.js and render.js).
 function lerp(a, b, t) { return a + (b - a) * t; }
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
@@ -47,8 +51,11 @@ class Player {
     this.bumpT = 0;
   }
 
+  // Rising or off the floor. Gates both the jump and the dive.
   get airborne() { return this.y > 0.001 || this.vy > 0; }
 
+  // Returning false lets game.js play a "blocked" sound instead of a swish.
+  // bumpT drives a small nudge so hitting the edge still feels responsive.
   moveLeft() {
     if (this.lane > 0) { this.lane--; return true; }
     this.bumpT = 0.25;
@@ -67,12 +74,14 @@ class Player {
     return true;
   }
 
+  // Fast-fall: only useful mid-air, to drop back into a lane sooner.
   dive() {
     if (!this.airborne) return false;
     this.vy = Math.min(this.vy, -22);
     return true;
   }
 
+  // Every one of these is a countdown that some visual effect reads.
   tickTimers(dt) {
     this.hitT = Math.max(0, this.hitT - dt);
     this.collectT = Math.max(0, this.collectT - dt);
@@ -81,6 +90,7 @@ class Player {
     this.bumpT = Math.max(0, this.bumpT - dt);
   }
 
+  // Animation only, no lane or gravity work: used behind menus and modals.
   idle(dt, strokeRate) {
     this.phase += dt * strokeRate;
     this.roll = lerp(this.roll, 0, Math.min(1, dt * 6));
@@ -88,9 +98,12 @@ class Player {
   }
 
   update(dt, strokeRate) {
+    // Ease towards the target lane rather than snapping; laneLerp is what
+    // makes the manta feel noticeably more agile than the turtle.
     const tx = LANE_X[this.lane];
     const prevX = this.x;
     this.x = lerp(this.x, tx, Math.min(1, dt * this.char.stats.laneLerp));
+    // Bank into the turn, proportional to how fast we are actually sliding.
     const vx = (this.x - prevX) / Math.max(dt, 0.0001);
     this.roll = lerp(this.roll, clamp(vx * 0.07, -0.45, 0.45), Math.min(1, dt * 12));
 
@@ -99,17 +112,21 @@ class Player {
       this.y += this.vy * dt;
       if (this.y <= 0) {
         this.y = 0;
-        if (this.vy < -4) this.squash = 0.18;
+        if (this.vy < -4) this.squash = 0.18;   // landing squash, only if hard
         this.vy = 0;
       }
     }
 
+    // Strokes slow in mid-air; there is nothing to push against up there.
     this.phase += dt * strokeRate * (this.airborne ? 0.55 : 1);
     this.tickTimers(dt);
   }
 }
 
 // --------------------------------------------------------- World objects --
+// One item on the track. worldZ is an absolute position along the course,
+// so it never changes; what moves is the player's distance, and the two are
+// subtracted to get the on-screen depth.
 class WorldObject {
   constructor(kind, subtype, lane, worldZ, y, speciesId) {
     this.kind = kind;       // "obstacle" | "collectible"
@@ -119,11 +136,14 @@ class WorldObject {
     this.y = y;
     this.speciesId = speciesId || null;  // set on rescuePod only
     this.alive = true;
-    this.bob = Math.random() * Math.PI * 2;
+    this.bob = Math.random() * Math.PI * 2;  // per-item phase, so items bob out of sync
   }
   get laneX() { return LANE_X[this.lane]; }
 }
 
+// Draws without replacement and reshuffles when empty, so the player meets
+// all nine litter types at a steady rate instead of seeing bottles five times
+// in a row, which pure random would happily do.
 class ShuffleBag {
   constructor(items) { this.items = items; this.bag = []; }
   next() {
@@ -141,6 +161,8 @@ class ShuffleBag {
 const FOOD_TYPES = ["fish", "seaweed", "shell"];
 
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+// The lanes left over once the given ones are occupied — used to guarantee
+// every pattern leaves at least one way through.
 function otherLanes(...taken) { return [0, 1, 2].filter(l => !taken.includes(l)); }
 
 class Spawner {
@@ -152,6 +174,8 @@ class Spawner {
     this.isDiscovered = isDiscovered || (() => false);
   }
 
+  // Lays down patterns just beyond the horizon as the player advances.
+  // Spacing tightens with speedFactor so the run gets denser as it gets faster.
   update(distance, speedFactor, objects) {
     while (this.nextAt < distance + SPAWN_AHEAD) {
       this.spawnPattern(this.nextAt, objects);
@@ -174,17 +198,21 @@ class Spawner {
     objects.push(new WorldObject("collectible", "rescuePod", lane, z, 0.62, species.id));
   }
 
+  // --- pattern building blocks ---
   obstacle(objects, lane, z, type) {
     const spec = OBSTACLE_SPECS[type];
     objects.push(new WorldObject("obstacle", type, lane, z, spec.hover));
   }
 
+  // A straight trail of collectibles down one lane.
   row(objects, lane, z, count, type, y = 0.45) {
     for (let i = 0; i < count; i++) {
       objects.push(new WorldObject("collectible", type, lane, z + i * 1.8, y));
     }
   }
 
+  // Picks one of five hand-tuned layouts. Each pairs a hazard with a reward
+  // somewhere safe, so the correct move is always visible in advance.
   spawnPattern(z, objects) {
     const r = Math.random();
     const food = pick(FOOD_TYPES);
@@ -207,8 +235,11 @@ class Spawner {
       const type = this.bag.next();
       this.obstacle(objects, lane, z, type);
       if (OBSTACLE_SPECS[type].tall) {
+        // A net cannot be jumped, so reward the lane change instead.
         this.row(objects, pick(otherLanes(lane)), z - 3, 4, food);
       } else {
+        // Lay the collectibles along a parabola matching the jump arc, which
+        // teaches the timing: collect them all and you clear the obstacle.
         for (let i = 0; i < 5; i++) {
           const t = (i - 2) / 2;
           objects.push(new WorldObject("collectible", food, lane, z + (i - 2) * 1.7, 0.5 + 1.25 * (1 - t * t)));
@@ -231,6 +262,7 @@ class Spawner {
     }
   }
 
+  // Weighted so the rarer shield shows up least often.
   pickBonus() {
     const r = Math.random();
     if (r < 0.45) return "goldenShell";

@@ -1,15 +1,19 @@
 // ===================== render.js =====================
 // Pseudo-3D renderer: perspective-projected neon track, layered underwater
-// scenery, the animated turtle (seen from behind), and all effects.
+// scenery, the animated player (seen from behind), and all effects.
+//
+// There is no 3D engine here. Everything is a single 2D canvas, and depth
+// comes from project(), which divides by distance to get a scale factor.
+// Drawing is back-to-front (painter's algorithm), sorted each frame.
 
 const Renderer = (() => {
-  const CAM_BACK = 3.2;
-  const FAR = 92;
-  const Z_NEAR = -2.1;
-  const SEG = 2;
-  const TURTLE_Z = 0.15;
+  const CAM_BACK = 3.2;        // how far the camera sits behind the player
+  const FAR = 92;              // draw distance, in world units
+  const Z_NEAR = -2.1;         // anything nearer than this is behind the camera
+  const SEG = 2;               // track tile length
+  const TURTLE_Z = 0.15;       // the player is very slightly ahead of the camera
   const TURTLE_SCALE = 0.82;
-  const FOG = [24, 104, 170];
+  const FOG = [24, 104, 170];  // colour distant geometry fades into
 
   const TILE = {
     sideA: [20, 82, 114], sideB: [14, 64, 96],
@@ -35,17 +39,24 @@ const Renderer = (() => {
 
   // --------------------------------------------------------------- Helpers
   function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
+  // Deterministic pseudo-random from an integer. Scenery is placed with this
+  // rather than Math.random so the same stretch of track looks identical every
+  // frame, without having to store it.
   function hash(n) { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); }
 
+  // World space -> screen space. Returns the scale factor `s` too, which
+  // callers use to size sprites so they shrink correctly with distance.
   function project(x, y, z) {
     const dz = z + CAM_BACK;
     const s = cam.F / dz;
     return { x: cam.cx + (x - cam.camX) * s, y: cam.horizonY + cam.sway + (cam.camH + cam.camY - y) * s, s };
   }
 
+  // How fogged something at depth z should be, 0 near and 1 at the horizon.
   function fogT(z) { return Math.pow(clamp01(z / FAR), 0.75); }
 
   const fogCache = new Map();
+  // Blend a colour towards FOG by t, giving the sense of water depth.
   function fogged(rgb, t, alpha = 1) {
     const q = Math.round(clamp01(t) * 40);
     const key = rgb[0] * 65536 + rgb[1] * 256 + rgb[2] + "|" + q + "|" + alpha;
@@ -91,6 +102,8 @@ const Renderer = (() => {
     return { x: (Math.random() * 2 - 1) * 6, y: -1.5 + Math.random() * 5, z, r: 0.03 + Math.random() * 0.06, wob: Math.random() * 6 };
   }
 
+  // Recomputes the camera and re-bakes the static layers. Called on every
+  // resize and orientation change, so the background is never rebuilt per frame.
   function resize(w, h, pixelRatio) {
     W = w; H = h; dpr = pixelRatio;
     const portrait = h > w;
@@ -106,6 +119,8 @@ const Renderer = (() => {
   }
 
   // ---------------------------------------------------------- Background --
+  // The sky, city and distant scenery never move, so they are drawn once into
+  // an offscreen canvas and blitted each frame instead of being re-rendered.
   function buildBackground() {
     const c = document.createElement("canvas");
     c.width = Math.max(1, Math.round(W * dpr));
@@ -440,6 +455,8 @@ const Renderer = (() => {
     ctx.stroke();
   }
 
+  // The neon track. Tiles are emitted from far to near so nearer tiles paint
+  // over the ones behind them, and each is fogged by its depth.
   function drawTrack(distance) {
     // bridge side faces
     ctx.fillStyle = "#041630";
@@ -568,6 +585,9 @@ const Renderer = (() => {
     ctx.restore();
   }
 
+  // Places a pre-rendered sprite in the world: project the anchor point, then
+  // scale the bitmap by the projected size. spinX squashes horizontally to
+  // fake a spin without needing a second image.
   function drawSpriteAt(img, x, y, z, worldW, anchorBottom, spinX) {
     const p = project(x, y, z);
     const w = worldW * p.s;
@@ -582,6 +602,7 @@ const Renderer = (() => {
     ctx.restore();
   }
 
+  // Obstacle plus the pulsing red danger ring that marks its lane on the floor.
   function drawObstacle(o, z) {
     const spec = OBSTACLE_SPECS[o.subtype];
     const img = Sprites.get(o.subtype);
@@ -634,6 +655,8 @@ const Renderer = (() => {
   }
 
   // --------------------------------------------------------------- Player --
+  // Draws whichever character was chosen, along with its shadow, shield glow
+  // and hit flash. The art itself lives in characters.js.
   function drawTurtle(tt, speed, playing) {
     const p = project(tt.x, 0.3 + tt.y, TURTLE_Z);
     const sh = project(tt.x, 0.004, TURTLE_Z);
@@ -706,6 +729,7 @@ const Renderer = (() => {
   }
 
   // -------------------------------------------------------------- Effects --
+  // Particles in screen space, already projected. Used for trailing bubbles.
   function burstScreen(x, y, colors, count, type) {
     for (let i = 0; i < count; i++) {
       const a = Math.random() * Math.PI * 2;
@@ -723,6 +747,8 @@ const Renderer = (() => {
     }
   }
 
+  // Same, but takes world coordinates and projects them first — the usual
+  // entry point for pickup and impact effects.
   function burstWorld(x, y, z, colors, count) {
     const p = project(x, y, z);
     burstScreen(p.x, p.y, colors, count, "spark");
@@ -832,6 +858,8 @@ const Renderer = (() => {
   }
 
   // ------------------------------------------------------------- Frame ---
+  // One frame. Everything with depth goes into a single list, is sorted
+  // far-to-near, then painted in that order so overlaps come out right.
   function draw(scene) {
     const { distance, speed, turtle, objects, playing, shieldActive } = scene;
     const tt = turtle;
@@ -853,6 +881,7 @@ const Renderer = (() => {
     drawPillars(distance);
     drawTrack(distance);
 
+    // Collect this frame's drawables: arches, scenery, game objects, player.
     const list = [];
     const A = 50;
     for (let i = Math.ceil((distance + Z_NEAR) / A); i <= Math.floor((distance + FAR) / A); i++) {
@@ -876,7 +905,7 @@ const Renderer = (() => {
       });
     }
     if (tt) list.push({ z: TURTLE_Z, kind: "turtle" });
-    list.sort((a, b) => b.z - a.z);
+    list.sort((a, b) => b.z - a.z);   // farthest first
 
     list.forEach(item => {
       switch (item.kind) {
@@ -906,6 +935,8 @@ const Renderer = (() => {
     }
   }
 
+  // Character portraits for the select screen and end screens. Rendering to a
+  // data URL is expensive, so each size is cached after the first request.
   const badgeCache = {};
 
   function characterBadgeURL(charId, size) {

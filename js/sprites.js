@@ -1,17 +1,24 @@
 // ===================== sprites.js =====================
 // Pre-rendered vector art (obstacles, collectibles, scenery) drawn once into
 // offscreen canvases, then scaled in 3D by the renderer. No image assets.
+//
+// Each function paints one item and returns its canvas. Drawing happens once
+// at startup, so the per-frame cost is a plain drawImage no matter how
+// detailed the art is. Sizes are in sprite pixels, unrelated to world units.
 
 const Sprites = (() => {
-  const store = {};
-  const urls = {};
+  const store = {};   // name -> canvas, for the renderer
+  const urls = {};    // name -> data URL, for <img> tags in the DOM
 
+  // Fresh offscreen canvas plus its context.
   function mk(w, h) {
     const c = document.createElement("canvas");
     c.width = w; c.height = h;
     return [c, c.getContext("2d")];
   }
 
+  // Soft radial halo, used behind most items so they read against the
+  // background at distance.
   function glow(g, x, y, r, color) {
     const gr = g.createRadialGradient(x, y, 0, x, y, r);
     gr.addColorStop(0, color);
@@ -826,6 +833,7 @@ const Sprites = (() => {
   }
 
   // --------------------------------------------------------------- Registry
+  // Paints everything once. Called from Game.init before the first frame.
   function init() {
     Object.assign(store, {
       bottle: bottle(), bag: bag(), cup: cup(), straw: straw(), wrapper: wrapper(), net: net(),
@@ -841,6 +849,8 @@ const Sprites = (() => {
 
   function get(name) { return store[name]; }
 
+  // Lazily converted, because toDataURL is slow and most sprites never end
+  // up in the DOM.
   function url(name) {
     if (!urls[name] && store[name]) urls[name] = store[name].toDataURL("image/png");
     return urls[name];
