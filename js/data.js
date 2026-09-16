@@ -224,13 +224,124 @@ const LEARNING_MODULES = [
         explanation: "A reusable cup or bottle avoids the need for a new disposable cup each time."
       }
     ]
+  },
+  {
+    id: "sixpack-ring",
+    obstacleType: "sixpack",
+    icon: "\U0001f37a",
+    factTitle: "Six-Pack Ring Discovered",
+    fact: "The plastic rings that hold drink cans together form perfect loops. Seabirds, seals and turtles can push their heads or flippers through them and never get free.",
+    awarenessTitle: "Why Are Loops So Dangerous?",
+    awarenessParagraphs: [
+      "A young animal that swims through a plastic ring keeps growing, but the ring does not. Over months the loop cuts deeper and deeper into its body.",
+      "Rings are almost invisible in water, so animals rarely see them until they are already caught. Unlike a net, a single ring is too small to spot from a boat and be removed.",
+      "Cutting every loop before you bin it takes two seconds, and many drink makers now use cardboard or compostable rings instead."
+    ],
+    quiz: [
+      {
+        question: "Why is a plastic ring especially dangerous to a young animal?",
+        options: [
+          "It changes the colour of the water",
+          "The animal keeps growing but the ring does not, so it cuts in deeper",
+          "It makes the animal swim faster",
+          "It dissolves into salt"
+        ],
+        correctAnswer: 1,
+        explanation: "The loop stays the same size while the animal grows, so an entanglement that starts loose slowly becomes a deep wound."
+      },
+      {
+        question: "What should you do with a six-pack ring before binning it?",
+        options: [
+          "Cut every loop open first",
+          "Fold it in half",
+          "Rinse it in the sea",
+          "Tie it into a knot"
+        ],
+        correctAnswer: 0,
+        explanation: "Snipping each loop means that even if the ring escapes into the ocean it can no longer trap an animal."
+      }
+    ]
+  },
+  {
+    id: "released-balloon",
+    obstacleType: "balloon",
+    icon: "\U0001f388",
+    factTitle: "Released Balloon Discovered",
+    fact: "Balloons released into the sky do not vanish. They drift for hundreds of kilometres, burst, and fall back down \u2014 and a huge share of them land in the ocean.",
+    awarenessTitle: "Where Do Released Balloons Actually Go?",
+    awarenessParagraphs: [
+      "A balloon let go at a party can travel for days on the wind before it bursts. Researchers have tracked balloons landing more than a thousand kilometres from where they were released.",
+      "A burst balloon lands on the water as a soft, translucent ribbon of rubber \u2014 almost indistinguishable from a jellyfish or squid to a turtle or an albatross. Studies of seabirds have found that soft plastics like balloons are far more likely to be fatal when swallowed than hard plastic fragments.",
+      "The attached string is a second hazard, tangling around wings, beaks and flippers. Bubbles, kites, or planted flowers make great balloon-free celebrations."
+    ],
+    quiz: [
+      {
+        question: "What happens to a balloon released into the sky?",
+        options: [
+          "It leaves the atmosphere",
+          "It dissolves harmlessly in the clouds",
+          "It drifts, bursts, and falls back down \u2014 often into the ocean",
+          "It turns into rain"
+        ],
+        correctAnswer: 2,
+        explanation: "What goes up comes down. Released balloons have been tracked falling into the sea over a thousand kilometres away."
+      },
+      {
+        question: "Why is a burst balloon so dangerous for a sea turtle?",
+        options: [
+          "It is sharp like glass",
+          "Soft, floating rubber looks just like a jellyfish",
+          "It is radioactive",
+          "It makes a loud noise"
+        ],
+        correctAnswer: 1,
+        explanation: "Soft plastics resemble the turtle's natural prey, and are far more likely to be swallowed and block the gut than hard fragments."
+      }
+    ]
+  },
+  {
+    id: "microplastics",
+    obstacleType: "microbeads",
+    icon: "\u2728",
+    factTitle: "Microplastic Cloud Discovered",
+    fact: "Microplastics are plastic pieces smaller than five millimetres. They are now found everywhere scientists have looked \u2014 from Arctic sea ice to the deepest ocean trench.",
+    awarenessTitle: "The Pollution You Cannot See",
+    awarenessParagraphs: [
+      "Some microplastics arrive already tiny \u2014 beads from cosmetics, or the synthetic fibres that shed from fleece and polyester every time it is washed. A single wash load can release hundreds of thousands of fibres that slip straight through water-treatment filters.",
+      "The rest are secondary microplastics: bottles, bags and wrappers ground down by sun and waves into fragments too small to ever collect again.",
+      "Plankton eat them, small fish eat the plankton, and bigger fish eat those \u2014 so the plastic climbs the food chain. Choosing natural fibres, using a washing-machine filter bag and avoiding products with plastic beads all cut the flow at its source."
+    ],
+    quiz: [
+      {
+        question: "How small does a plastic piece have to be to count as a microplastic?",
+        options: [
+          "Smaller than five millimetres",
+          "Smaller than a football",
+          "Smaller than one metre",
+          "Smaller than a car"
+        ],
+        correctAnswer: 0,
+        explanation: "Five millimetres \u2014 about the width of a pencil eraser \u2014 is the standard cut-off for a microplastic."
+      },
+      {
+        question: "Where do many ocean microfibres come from?",
+        options: [
+          "Rain clouds",
+          "Volcanoes on the sea floor",
+          "Washing synthetic clothes like fleece and polyester",
+          "Fish scales"
+        ],
+        correctAnswer: 2,
+        explanation: "Each wash sheds hundreds of thousands of plastic fibres, most of which pass straight through treatment plants into rivers and the sea."
+      }
+    ]
   }
 ];
 
 const MODULE_BY_OBSTACLE_TYPE = {};
 LEARNING_MODULES.forEach(m => { MODULE_BY_OBSTACLE_TYPE[m.obstacleType] = m; });
 
-const OBSTACLE_TYPES = ["bottle", "bag", "net", "straw", "wrapper", "cup"];
+const OBSTACLE_TYPES = ["bottle", "bag", "net", "straw", "wrapper", "cup", "sixpack", "balloon", "microbeads"];
 
 const COLLECTIBLE_TYPES = {
   fish: { points: 10, kind: "food" },
@@ -238,5 +349,6 @@ const COLLECTIBLE_TYPES = {
   shell: { points: 10, kind: "food" },
   goldenShell: { points: 50, kind: "bonus" },
   shieldBubble: { points: 0, kind: "shield" },
-  cleanupToken: { points: 100, kind: "token" }
+  cleanupToken: { points: 100, kind: "token" },
+  rescuePod: { points: 75, kind: "species" }
 };
