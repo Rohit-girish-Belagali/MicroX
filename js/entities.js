@@ -3,7 +3,6 @@
 // z is distance ahead of the turtle along the track (turtle sits at z = 0).
 
 const LANE_X = [-1, 0, 1];
-const JUMP_VELOCITY = 11.5;
 const GRAVITY = 36;
 const SPAWN_AHEAD = 88;
 
@@ -14,20 +13,27 @@ const OBSTACLE_SPECS = {
   cup:     { w: 0.95, height: 0.95, hover: 0.05 },
   straw:   { w: 1.1,  height: 0.6,  hover: 0.04 },
   wrapper: { w: 1.1,  height: 0.7,  hover: 0.1 },
-  net:     { w: 1.25, height: 99,   hover: 0, tall: true }
+  net:     { w: 1.25, height: 99,   hover: 0, tall: true },
+  sixpack: { w: 1.2,  height: 0.7,  hover: 0.06 },
+  balloon: { w: 0.9,  height: 1.05, hover: 0.12 },
+  microbeads: { w: 1.3, height: 0.85, hover: 0.1 }
 };
 
 const COLLECTIBLE_SPECS = {
   fish: { w: 0.62 }, seaweed: { w: 0.58 }, shell: { w: 0.58 },
-  goldenShell: { w: 0.78 }, shieldBubble: { w: 0.85 }, cleanupToken: { w: 0.74 }
+  goldenShell: { w: 0.78 }, shieldBubble: { w: 0.85 }, cleanupToken: { w: 0.74 },
+  rescuePod: { w: 0.95 }
 };
 
 function lerp(a, b, t) { return a + (b - a) * t; }
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
-// ---------------------------------------------------------------- Turtle --
-class Turtle {
-  constructor() {
+// ---------------------------------------------------------------- Player --
+// The swimmer the user picked. Movement feel comes from char.stats, so the
+// dolphin jumps higher and the manta banks between lanes faster.
+class Player {
+  constructor(character) {
+    this.char = character || CHARACTER_BY_ID[DEFAULT_CHARACTER_ID];
     this.lane = 1;
     this.x = 0;
     this.y = 0;
@@ -57,7 +63,7 @@ class Turtle {
 
   jump() {
     if (this.airborne) return false;
-    this.vy = JUMP_VELOCITY;
+    this.vy = this.char.stats.jump;
     return true;
   }
 
@@ -84,7 +90,7 @@ class Turtle {
   update(dt, strokeRate) {
     const tx = LANE_X[this.lane];
     const prevX = this.x;
-    this.x = lerp(this.x, tx, Math.min(1, dt * 13));
+    this.x = lerp(this.x, tx, Math.min(1, dt * this.char.stats.laneLerp));
     const vx = (this.x - prevX) / Math.max(dt, 0.0001);
     this.roll = lerp(this.roll, clamp(vx * 0.07, -0.45, 0.45), Math.min(1, dt * 12));
 
@@ -105,12 +111,13 @@ class Turtle {
 
 // --------------------------------------------------------- World objects --
 class WorldObject {
-  constructor(kind, subtype, lane, worldZ, y) {
+  constructor(kind, subtype, lane, worldZ, y, speciesId) {
     this.kind = kind;       // "obstacle" | "collectible"
     this.subtype = subtype;
     this.lane = lane;
     this.worldZ = worldZ;
     this.y = y;
+    this.speciesId = speciesId || null;  // set on rescuePod only
     this.alive = true;
     this.bob = Math.random() * Math.PI * 2;
   }
@@ -137,16 +144,34 @@ function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 function otherLanes(...taken) { return [0, 1, 2].filter(l => !taken.includes(l)); }
 
 class Spawner {
-  constructor() {
+  constructor(isDiscovered) {
     this.bag = new ShuffleBag(OBSTACLE_TYPES);
     this.nextAt = 55;
+    this.sinceRescue = 0;
+    // predicate the game supplies so undiscovered species are favoured
+    this.isDiscovered = isDiscovered || (() => false);
   }
 
   update(distance, speedFactor, objects) {
     while (this.nextAt < distance + SPAWN_AHEAD) {
       this.spawnPattern(this.nextAt, objects);
-      this.nextAt += lerp(24, 15, speedFactor) + Math.random() * 6;
+      this.sinceRescue++;
+      if (this.sinceRescue >= 3 && Math.random() < 0.55) {
+        this.sinceRescue = 0;
+        this.rescue(objects, this.nextAt + 9);
+      }
+      this.nextAt += lerp(26, 15, speedFactor) + Math.random() * 6;
     }
+  }
+
+  // A rescue pod holds one species. Weight heavily towards species the player
+  // has not met yet so the Codex fills up instead of repeating.
+  rescue(objects, z) {
+    const unknown = MARINE_SPECIES.filter(s => !this.isDiscovered(s.id));
+    const pool = unknown.length && Math.random() < 0.85 ? unknown : MARINE_SPECIES;
+    const species = pick(pool);
+    const lane = Math.floor(Math.random() * 3);
+    objects.push(new WorldObject("collectible", "rescuePod", lane, z, 0.62, species.id));
   }
 
   obstacle(objects, lane, z, type) {
